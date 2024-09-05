@@ -12,6 +12,7 @@ contract EventManager {
         uint256 registrationFee;
         uint256 deadline;
         bool isOpen;
+        address creator;
         address[] participants;
     }
 
@@ -23,7 +24,8 @@ contract EventManager {
         string name,
         uint256 maxParticipants,
         uint256 registrationFee,
-        uint256 deadline
+        uint256 deadline,
+        address creator
     );
 
     event RegistrationOpened(uint256 indexed eventId);
@@ -44,6 +46,11 @@ contract EventManager {
         contractOwner = msg.sender;
     }
 
+    modifier onlyOwner() {
+        if (msg.sender != contractOwner) revert Unauthorized();
+        _;
+    }
+
     modifier noReentrancy() {
         require(!_locked, "Stop making reentrancy calls! Please hold.");
         _locked = true;
@@ -51,13 +58,13 @@ contract EventManager {
         _locked = false;
     }
 
-    modifier onlyOwner() {
-        if (msg.sender != contractOwner) revert Unauthorized();
+    modifier eventExists(uint256 _eventId) {
+        if (_eventId >= eventCount) revert EventNotFound();
         _;
     }
 
-    modifier eventExists(uint256 _eventId) {
-        if (_eventId >= eventCount) revert EventNotFound();
+    modifier onlyEventCreator(uint256 _eventId) {
+        if (msg.sender != events[_eventId].creator) revert Unauthorized();
         _;
     }
 
@@ -66,7 +73,7 @@ contract EventManager {
         uint256 _maxParticipants,
         uint256 _registrationFee,
         uint256 _daysUntilDeadline
-    ) external onlyOwner {
+    ) external {
         require(bytes(_name)[0] != 0, "Event name cannot be empty");
         require(
             _daysUntilDeadline > 0,
@@ -83,7 +90,8 @@ contract EventManager {
             registrationFee: _registrationFee,
             deadline: _deadline,
             isOpen: false,
-            participants: new address[](0)
+            creator: msg.sender,
+            participants: new address[](0) 
         });
 
         emit EventCreated(
@@ -91,14 +99,15 @@ contract EventManager {
             _name,
             _maxParticipants,
             _registrationFee,
-            _deadline
+            _deadline,
+            msg.sender
         );
     }
 
     function openRegistration(uint256 _eventId)
         external
-        onlyOwner
         eventExists(_eventId)
+        onlyEventCreator(_eventId)
     {
         Event storage evt = events[_eventId];
         require(!evt.isOpen, "Registration is already open");
@@ -108,8 +117,8 @@ contract EventManager {
 
     function closeRegistration(uint256 _eventId)
         external
-        onlyOwner
         eventExists(_eventId)
+        onlyEventCreator(_eventId)
     {
         Event storage evt = events[_eventId];
         require(evt.isOpen, "Registration is already closed");
@@ -125,14 +134,12 @@ contract EventManager {
     {
         Event storage evt = events[_eventId];
 
-        // Cache values from storage to memory
         bool isOpen = evt.isOpen;
         uint256 maxParticipants = evt.maxParticipants;
         uint256 registrationFee = evt.registrationFee;
         uint256 deadline = evt.deadline;
         address[] storage participants = evt.participants;
 
-        // Using the cached variables instead of reading from storage each time
         if (!isOpen) revert RegistrationHasClosed();
         if (participants.length >= maxParticipants)
             revert MaxParticipantsReached();
